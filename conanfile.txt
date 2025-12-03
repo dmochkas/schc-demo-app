@@ -1,0 +1,10 @@
+[requires]
+ahoi-serial-lib/1.0.0
+
+[generators]
+CMakeDeps
+CMakeToolchain
+
+[options]
+ahoi-serial-lib/*:shared=True
+ahoi-serial-lib/*:secure_mode=False
