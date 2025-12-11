@@ -1,5 +1,6 @@
 [requires]
 ahoi-serial-lib/1.0.0
+zlog/1.2.18@dochkas/stable
 
 [generators]
 CMakeDeps

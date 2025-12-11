@@ -1,10 +1,36 @@
 
 set(EXEC_NAME "schc-demo-app")
+set(UTILS "utils-lib")
+set(LOGGER_LIB "logger-lib")
+set(CLI_LIB "cli-lib")
 set(AHOI_SERVICE "ahoi-service-lib")
+set(SENSOR_SERVICE "sensor-service-lib")
 
-add_library(${AHOI_SERVICE} OBJECT "l2_ahoi_service.c")
+add_library(${UTILS} OBJECT "utils.c")
+target_include_directories(${UTILS} PRIVATE "${PROJECT_SOURCE_DIR}/include/schc_demo_app")
 
-target_include_directories(${AHOI_SERVICE} PRIVATE "${PROJECT_SOURCE_DIR}/include/schc_demo_app/services")
+add_library(${LOGGER_LIB} OBJECT "logger_helper.c")
+target_include_directories(${LOGGER_LIB} PRIVATE "${PROJECT_SOURCE_DIR}/include/schc_demo_app")
+target_compile_definitions(${LOGGER_LIB} PRIVATE LOG_CONFIG_FILE="${LOG_CONFIG_FILE}")
+target_link_libraries(${LOGGER_LIB} PUBLIC ${ZLOG_LIB})
 
-add_executable(${EXEC_NAME} "main.c")
-target_link_libraries(${EXEC_NAME} ${AHOI_SERIAL_LIB} ${AHOI_SERVICE})
+add_library(${CLI_LIB} OBJECT "cli_helper.c")
+target_include_directories(${CLI_LIB} PRIVATE "${PROJECT_SOURCE_DIR}/include/schc_demo_app")
+
+if ("${EXT}" STREQUAL "ahoi")
+    add_library(${AHOI_SERVICE} OBJECT "l2_ahoi_service.c")
+    target_include_directories(${AHOI_SERVICE} PRIVATE "${PROJECT_SOURCE_DIR}/include/schc_demo_app/l2")
+    target_compile_definitions(${AHOI_SERVICE} PUBLIC L2_AHOI_EXT)
+    target_link_libraries(${AHOI_SERVICE} PUBLIC ${AHOI_SERIAL_LIB} ${LOGGER_LIB})
+
+    set(L2_LIB "${AHOI_SERVICE}")
+endif ()
+
+add_library(${SENSOR_SERVICE} OBJECT "sensor_service.c")
+target_include_directories(${SENSOR_SERVICE} PRIVATE
+        "${PROJECT_SOURCE_DIR}/include/schc_demo_app/"
+        "${PROJECT_SOURCE_DIR}/include/schc_demo_app/services")
+
+add_executable(${EXEC_NAME} "main.c" $<TARGET_OBJECTS:${UTILS}> $<TARGET_OBJECTS:${CLI_LIB}> $<TARGET_OBJECTS:${SENSOR_SERVICE}>)
+target_include_directories(${EXEC_NAME} PRIVATE "${PROJECT_SOURCE_DIR}/include")
+target_link_libraries(${EXEC_NAME} ${L2_LIB} ${LOGGER_LIB} m)
