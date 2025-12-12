@@ -4,6 +4,7 @@ set(UTILS "utils-lib")
 set(LOGGER_LIB "logger-lib")
 set(CLI_LIB "cli-lib")
 set(AHOI_SERVICE "ahoi-service-lib")
+set(SCHC_SERVICE "schc-service-lib")
 set(SENSOR_SERVICE "sensor-service-lib")
 
 add_library(${UTILS} OBJECT "utils.c")
@@ -27,11 +28,18 @@ if ("${EXT}" STREQUAL "ahoi")
     set(L2_LIB "${AHOI_SERVICE}")
 endif ()
 
+add_library(${SCHC_SERVICE} OBJECT "schc_service.c")
+target_include_directories(${SCHC_SERVICE} PRIVATE
+        "${PROJECT_SOURCE_DIR}/include/schc_demo_app/"
+        "${PROJECT_SOURCE_DIR}/include/schc_demo_app/services")
+target_link_libraries(${SCHC_SERVICE} PUBLIC ${SCHC_FULL_SDK_LIB})
+
 add_library(${SENSOR_SERVICE} OBJECT "sensor_service.c")
 target_include_directories(${SENSOR_SERVICE} PRIVATE
         "${PROJECT_SOURCE_DIR}/include/schc_demo_app/"
         "${PROJECT_SOURCE_DIR}/include/schc_demo_app/services")
 
-add_executable(${EXEC_NAME} "main.c" $<TARGET_OBJECTS:${UTILS}> $<TARGET_OBJECTS:${CLI_LIB}> $<TARGET_OBJECTS:${SENSOR_SERVICE}>)
+add_executable(${EXEC_NAME} "main.c" $<TARGET_OBJECTS:${UTILS}> $<TARGET_OBJECTS:${CLI_LIB}>
+        $<TARGET_OBJECTS:${SCHC_SERVICE}> $<TARGET_OBJECTS:${SENSOR_SERVICE}>)
 target_include_directories(${EXEC_NAME} PRIVATE "${PROJECT_SOURCE_DIR}/include")
 target_link_libraries(${EXEC_NAME} ${L2_LIB} ${LOGGER_LIB} m)

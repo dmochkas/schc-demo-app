@@ -4,6 +4,7 @@
 
 #include <ahoi_serial/ahoi_defs.h>
 #include <ahoi_serial/core.h>
+// #include <schc_sdk/schccomp.h>
 
 #include "schc_demo_app/l2/l2.h"
 #include "schc_demo_app/logger_helper.h"
