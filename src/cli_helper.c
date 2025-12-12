@@ -1,5 +1,4 @@
 #include "cli_helper.h"
-// #include "zlog.h"
 
 #include <string.h>
 #include <ctype.h>
@@ -7,6 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <termios.h>
+
+#include "logger_helper.h"
 
 void print_usage(const char *prog_name) {
     printf("TODO:");
@@ -16,7 +17,7 @@ int process_key(const char *hex, uint8_t *key_buffer, size_t key_size) {
     size_t hex_len = strlen(hex);
 
     if (hex_len < 2 || hex_len > key_size * 2) {
-        fprintf(stderr, "Key must be 2-%zu hex characters\n", key_size * 2);
+        zlog_error(error_cat, "Key must be 2-%zu hex characters\n", key_size * 2);
         return -1;
     }
 
@@ -26,7 +27,7 @@ int process_key(const char *hex, uint8_t *key_buffer, size_t key_size) {
     // Convert what we can from the hex string
     for (size_t i = 0; i < hex_len/2 && i < key_size; i++) {
         if (!isxdigit(hex[i*2]) || !isxdigit(hex[i*2+1])) {
-            fprintf(stderr, "Invalid hex characters in key\n");
+            zlog_error(error_cat, "Invalid hex characters in key\n");
             return -1;
         }
         sscanf(hex + i*2, "%2hhx", &key_buffer[i]);
@@ -35,7 +36,7 @@ int process_key(const char *hex, uint8_t *key_buffer, size_t key_size) {
     // Handle odd-length hex string
     if (hex_len % 2 != 0) {
         if (!isxdigit(hex[hex_len-1])) {
-            fprintf(stderr, "Invalid hex character in key\n");
+            zlog_error(error_cat, "Invalid hex character in key\n");
             return -1;
         }
         sscanf(hex + hex_len-1, "%1hhx", &key_buffer[hex_len/2]);
@@ -85,7 +86,7 @@ cli_parse_status parse_cli_arguments(const int32_t argc, char* const * argv, uin
     }
 
     if (!key_hex) {
-        fprintf(stderr, "Error: Encryption key is required\n");
+        zlog_error(error_cat, "Error: Encryption key is required\n");
         print_usage(argv[0]);
         return CLI_PARSE_KO;
     }
@@ -95,7 +96,7 @@ cli_parse_status parse_cli_arguments(const int32_t argc, char* const * argv, uin
     }
 
     if (baud_arg != NULL && strcmp("115200", baud_arg) != 0) {
-        fprintf(stderr, "Only 115200 baudrate is supported\n");
+        zlog_error(error_cat, "Only 115200 baudrate is supported\n");
         return CLI_PARSE_KO;
     }
 

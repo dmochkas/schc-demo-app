@@ -16,6 +16,7 @@ target_link_libraries(${LOGGER_LIB} PUBLIC ${ZLOG_LIB})
 
 add_library(${CLI_LIB} OBJECT "cli_helper.c")
 target_include_directories(${CLI_LIB} PRIVATE "${PROJECT_SOURCE_DIR}/include/schc_demo_app")
+target_link_libraries(${CLI_LIB} PRIVATE ${LOGGER_LIB})
 
 if ("${EXT}" STREQUAL "ahoi")
     add_library(${AHOI_SERVICE} OBJECT "l2_ahoi_service.c")
