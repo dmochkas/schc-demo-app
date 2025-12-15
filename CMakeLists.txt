@@ -4,6 +4,8 @@ project(schc-demo-app C)
 
 include(config.cmake)
 
+set(CMAKE_VERBOSE_MAKEFILE ON)
+
 set(AHOI_SERIAL_LIB "ahoi-serial-lib::ahoi-serial-lib")
 set(SCHC_FULL_SDK_LIB "schc-full-sdk::schc-full-sdk")
 set(ZLOG_LIB "zlog::zlog")
