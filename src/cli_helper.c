@@ -66,6 +66,7 @@ cli_parse_status parse_cli_arguments(const int32_t argc, char* const * argv, uin
         switch (opt) {
             case 'i':
                 id_arg = optarg;
+            break;
             case 'k':
                 key_hex = optarg;
             break;

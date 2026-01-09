@@ -32,7 +32,7 @@ add_library(${SCHC_SERVICE} OBJECT "schc_service.c")
 target_include_directories(${SCHC_SERVICE} PRIVATE
         "${PROJECT_SOURCE_DIR}/include/schc_demo_app/"
         "${PROJECT_SOURCE_DIR}/include/schc_demo_app/services")
-target_link_libraries(${SCHC_SERVICE} PRIVATE ${SCHC_FULL_SDK_LIB})
+target_link_libraries(${SCHC_SERVICE} PRIVATE ${SCHC_FULL_SDK_LIB} ${ZLOG_LIB})
 
 add_library(${SENSOR_SERVICE} OBJECT "sensor_service.c")
 target_include_directories(${SENSOR_SERVICE} PRIVATE
