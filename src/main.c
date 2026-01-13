@@ -54,13 +54,12 @@ int main(int argc, char *argv[]) {
 
     zlog_info(ok_cat, "Layer 2 init OK");
 
-    /* Initialize SCHC service (dummy mode: wrap payload into SCHC RuleID + residue) */
-    if (schc_service_init(SCHC_MODE_DUMMY) != SCHC_OK) {
+    if (schc_service_init() != SCHC_OK) {
         zlog_error(error_cat, "SCHC init failed");
         return EXIT_FAILURE;
     }
 
-    zlog_info(ok_cat, "SCHC service init OK (DUMMY mode)");
+    zlog_info(ok_cat, "SCHC service init OK");
 
     static sensor_data_t sensor_data = {0};
 
@@ -69,8 +68,6 @@ int main(int argc, char *argv[]) {
     p.type = 0x00;
     p.flags = 0x00;
     p.seq = 0;
-
-    /* We will send SCHC-compressed bytes, so do not pin p.payload to sensor_data permanently */
     p.pl_size = 0;
     p.payload = NULL;
 
@@ -88,7 +85,7 @@ int main(int argc, char *argv[]) {
         const size_t in_len = sizeof(sensor_data);
 
         /* SCHC output buffer: must be >= in_len + 1 for dummy mode (RuleID + payload) */
-        uint8_t schc_buf[256];
+        static uint8_t schc_buf[256];
         size_t schc_len = 0;
 
         if (schc_service_compress(in_payload, in_len, schc_buf, sizeof(schc_buf), &schc_len) != SCHC_OK) {
@@ -97,7 +94,11 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        /* Prepare AHOI header, then send SCHC packet as the payload */
+        if (schc_len > MAX_PAYLOAD_SIZE) {
+            zlog_error(error_cat, "Max payload size exceeded!");
+            continue;
+        }
+
         p.pl_size = (uint8_t) schc_len;
         p.payload = schc_buf;
 
@@ -107,7 +108,6 @@ int main(int argc, char *argv[]) {
             zlog_error(error_cat, "Error sending packet %u", seq);
         }
 
-        /* Prints the packet header + payload pointer contents as handled by your AHOI tools */
         print_packet(&p);
 
         seq++;

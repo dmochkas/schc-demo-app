@@ -1,24 +1,16 @@
 #include "schc_service.h"
 
 #include <string.h>
-#include <limits.h>
 #include <stdbool.h>
+#include <schc_sdk/fullsdknet.h>
+#include <schc_sdk/schccomp.h>
 
+#include "l2/l2.h"
 #include "logger_helper.h"
-
-
-
-/* -------------------------------------------------------------------------- */
-/* Constants                                                                  */
-/* -------------------------------------------------------------------------- */
 
 #define NB_RULES 2
 #define NO_COMP_RULE_ID 150
 #define IPV6_UDP_RULE_ID 28
-
-/* -------------------------------------------------------------------------- */
-/* Dummy template variables (as requested by supervisor)                       */
-/* -------------------------------------------------------------------------- */
 
 static uint8_t dev_ip[16] = {
     0x20,0x01,0x0d,0xb8, 0x00,0x00,0x00,0x01,
@@ -33,65 +25,30 @@ static uint8_t app_ip[16] = {
 static uint8_t dev_port[2] = { 0x12, 0x34 };
 static uint8_t app_port[2] = { 0x56, 0x78 };
 
-/* -------------------------------------------------------------------------- */
-/* Service init                                                               */
-/* -------------------------------------------------------------------------- */
+static rules_t *g_rules = NULL;
 
-static schc_mode_t g_mode = SCHC_MODE_DUMMY;
-
-schc_status_t schc_service_init(const schc_mode_t mode)
+static bool mocked_ext_compress(bit_buffer_t *output_bb_ptr, bit_string_t *input_bs_ptr)
 {
-    g_mode = mode;
-    return SCHC_OK;
-}
-
-/* -------------------------------------------------------------------------- */
-/* REQUIRED CALLBACKS                                                         */
-/* -------------------------------------------------------------------------- */
-
-/* Payload passthrough compression */
-static bool passthrough_ext_compress(bit_buffer_t *out_bb,
-                                     bit_string_t *in_bs)
-{
-    if (!out_bb || !in_bs || !in_bs->value_ptr) {
-        return false;
-    }
-
-    /* Copy payload bits exactly as-is */
-    push_bits(out_bb,
-              in_bs->value_ptr,
-              in_bs->start_bit_index,
-              in_bs->value_length_bits);
+    (void)output_bb_ptr;
+    (void)input_bs_ptr;
 
     return true;
 }
 
-/* Payload passthrough decompression */
-static bool passthrough_ext_decompress(bit_buffer_t *out_bb,
-                                       bit_buffer_t *in_bb)
+static bool mocked_ext_decompress(bit_buffer_t *p_out_data, bit_buffer_t *p_in_data)
 {
-    if (!out_bb || !in_bb) {
-        return false;
-    }
+    (void)p_out_data;
+    (void)p_in_data;
 
-    uint16_t remaining_bits =
-        (uint16_t)(in_bb->put_bit_index - in_bb->get_bit_index);
-
-    move_bits(out_bb, in_bb, remaining_bits);
     return true;
 }
 
-/* Optional device IID callback */
 static bool l2a_get_dev_iid(uint8_t **iid)
 {
     if (!iid) return false;
-    *iid = &dev_ip[8];
+    *iid = l2_get_id_byte();
     return true;
 }
-
-/* -------------------------------------------------------------------------- */
-/* RULE TEMPLATE                                                              */
-/* -------------------------------------------------------------------------- */
 
 rules_t *tpl_get_template_rules(void)
 {
@@ -174,9 +131,11 @@ rules_t *tpl_get_template_rules(void)
     return &rules;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Public compression API                                                     */
-/* -------------------------------------------------------------------------- */
+schc_status_t schc_service_init()
+{
+    g_rules = tpl_get_template_rules();
+    return SCHC_OK;
+}
 
 schc_status_t schc_service_compress(const uint8_t *in, size_t in_len,
                                     uint8_t *out, size_t out_cap,
@@ -184,18 +143,20 @@ schc_status_t schc_service_compress(const uint8_t *in, size_t in_len,
 {
     if (!in || !out || !out_len) return SCHC_ERR;
     if (in_len > UINT16_MAX || out_cap > UINT16_MAX) return SCHC_ERR;
+    if (g_rules == NULL) {
+        zlog_error(error_cat, "SCHC is not initialized");
+        return SCHC_ERR;
+    }
 
-    rules_t *rules = tpl_get_template_rules();
     uint16_t comp_bits = 0;
 
-    comp_callbacks_t cb;
-    memset(&cb, 0, sizeof(cb));
-    cb.ext_compress   = passthrough_ext_compress;
-    cb.ext_decompress = passthrough_ext_decompress;
+    comp_callbacks_t cb = {0};
+    cb.ext_compress   = mocked_ext_compress;
+    cb.ext_decompress = mocked_ext_decompress;
     cb.get_dev_iid    = l2a_get_dev_iid;
 
-    comp_status_t st = schc_compress(
-        rules,
+    const comp_status_t st = schc_compress(
+        g_rules,
         out,
         (uint16_t)out_cap,
         &comp_bits,

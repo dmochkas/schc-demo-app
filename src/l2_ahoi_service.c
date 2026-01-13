@@ -1,6 +1,7 @@
 #include "l2.h"
 
 #include <string.h>
+#include <stdbool.h>
 #include <termios.h>
 
 #include <ahoilib.h>
@@ -11,6 +12,7 @@ static int g_ahoi_fd = -1;
 static const char* port = NULL;
 static int32_t baudrate = -1;
 static uint8_t modem_id = 0x00;
+static uint32_t modem_id_32 = 0x00;
 static ahoi_packet_t staging_p = {0};
 
 l2_init_status l2_init() {
@@ -37,6 +39,15 @@ void l2_ahoi_set_baudrate(const int32_t val) {
 
 void l2_set_id(const uint32_t id) {
     modem_id = (uint8_t) id;
+    modem_id_32 = id;
+}
+
+uint32_t* l2_get_id() {
+    return &modem_id_32;
+}
+
+uint8_t* l2_get_id_byte() {
+    return &modem_id;
 }
 
 void l2_send_prepare(const void* header) {
