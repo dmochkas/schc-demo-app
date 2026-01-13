@@ -18,6 +18,10 @@ l2_init_status l2_init();
 
 void l2_set_id(uint32_t id);
 
+uint32_t* l2_get_id();
+
+uint8_t* l2_get_id_byte();
+
 void l2_send_prepare(const void* params);
 
 l2_send_status l2_send_run(const uint8_t* payload, size_t size);

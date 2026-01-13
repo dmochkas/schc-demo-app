@@ -32,7 +32,7 @@ add_library(${SCHC_SERVICE} OBJECT "schc_service.c")
 target_include_directories(${SCHC_SERVICE} PRIVATE
         "${PROJECT_SOURCE_DIR}/include/schc_demo_app/"
         "${PROJECT_SOURCE_DIR}/include/schc_demo_app/services")
-target_link_libraries(${SCHC_SERVICE} PRIVATE ${SCHC_FULL_SDK_LIB})
+target_link_libraries(${SCHC_SERVICE} PRIVATE ${SCHC_FULL_SDK_LIB} ${ZLOG_LIB})
 
 add_library(${SENSOR_SERVICE} OBJECT "sensor_service.c")
 target_include_directories(${SENSOR_SERVICE} PRIVATE
@@ -42,4 +42,4 @@ target_include_directories(${SENSOR_SERVICE} PRIVATE
 add_executable(${EXEC_NAME} "main.c" $<TARGET_OBJECTS:${UTILS}> $<TARGET_OBJECTS:${CLI_LIB}>
         $<TARGET_OBJECTS:${SCHC_SERVICE}> $<TARGET_OBJECTS:${SENSOR_SERVICE}> $<TARGET_OBJECTS:${LOGGER_LIB}>)
 target_include_directories(${EXEC_NAME} PRIVATE "${PROJECT_SOURCE_DIR}/include")
-target_link_libraries(${EXEC_NAME} ${L2_LIB} ${AHOI_SERIAL_LIB} ${ZLOG_LIB} m)
+target_link_libraries(${EXEC_NAME} ${L2_LIB} ${SCHC_FULL_SDK_LIB} ${AHOI_SERIAL_LIB} ${ZLOG_LIB} m)
