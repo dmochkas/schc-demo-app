@@ -5,7 +5,7 @@
 // responsible for waking up
 // "performs" data sensing when woke up
 
-typedef struct {
+typedef struct __attribute__((packed)) {
     float temp;
     float pH;
     uint8_t bat;
