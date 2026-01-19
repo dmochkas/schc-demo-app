@@ -8,7 +8,7 @@
 #include "l2/l2.h"
 #include "logger_helper.h"
 
-#define NB_RULES 2
+#define NB_RULES 1
 #define NO_COMP_RULE_ID 150
 #define IPV6_UDP_RULE_ID 28
 
@@ -104,28 +104,12 @@ rules_t *tpl_get_template_rules(void)
     add_rule_field(&ipv6udp_rule,&f10);add_rule_field(&ipv6udp_rule,&f11);
     add_rule_field(&ipv6udp_rule,&f12);add_rule_field(&ipv6udp_rule,&f13);
 
-    /* ===================== NO COMPRESSION RULE ===================== */
-
-    static rule_field_t payload_field = {
-        FID_PAYLOAD, 1, DIR_BI,
-        NULL, 0,
-        MO_IGNORE, {0},
-        CDA_VALUE_SENT
-    };
-
-    static rule_field_t *nocomp_fields[1];
-    static rule_t nocomp_rule;
-
-    init_rule(&nocomp_rule, NO_COMP_RULE_ID, STACK_NONE, nocomp_fields);
-    add_rule_field(&nocomp_rule, &payload_field);
-
     /* ===================== RULE SET ===================== */
 
     static rules_t rules;
     static rule_t *rule_array[NB_RULES];
 
     init_rules(&rules, rule_array, NO_COMP_RULE_ID);
-    add_rule(&rules, &nocomp_rule);
     add_rule(&rules, &ipv6udp_rule);
 
     return &rules;
@@ -164,6 +148,14 @@ schc_status_t schc_service_compress(const uint8_t *in, size_t in_len,
         (uint16_t)in_len,
         &cb
     );
+
+    if (st == COMP_RULES_NOT_FOUND_ERR) {
+        zlog_info(ok_cat, "SCHC rule not found, using no compression rule %d", NO_COMP_RULE_ID);
+        out[0] = g_rules->default_rule_id;
+        memcpy(out + 1, in, in_len);
+        *out_len = (in_len + 1) * CHAR_BIT; // 1 byte for the rule ID
+        return SCHC_OK;
+    }
 
     if (st != COMP_SUCCESS) {
         zlog_error(error_cat, "SCHC compress failed: %d", st);
