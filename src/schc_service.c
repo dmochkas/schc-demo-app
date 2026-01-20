@@ -153,7 +153,7 @@ schc_status_t schc_service_compress(const uint8_t *in, size_t in_len,
         zlog_info(ok_cat, "SCHC rule not found, using no compression rule %d", NO_COMP_RULE_ID);
         out[0] = g_rules->default_rule_id;
         memcpy(out + 1, in, in_len);
-        *out_len = (in_len + 1) * CHAR_BIT; // 1 byte for the rule ID
+        *out_len = in_len + 1; // 1 byte for the rule ID
         return SCHC_OK;
     }
 
