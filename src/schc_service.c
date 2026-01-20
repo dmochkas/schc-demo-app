@@ -2,6 +2,7 @@
 
 #include <string.h>
 #include <stdbool.h>
+
 #include <schc_sdk/fullsdknet.h>
 #include <schc_sdk/schccomp.h>
 
@@ -11,6 +12,7 @@
 #define NB_RULES 1
 #define NO_COMP_RULE_ID 150
 #define IPV6_UDP_RULE_ID 28
+
 
 static uint8_t dev_ip[16] = {
     0x20,0x01,0x0d,0xb8, 0x00,0x00,0x00,0x01,
@@ -25,13 +27,18 @@ static uint8_t app_ip[16] = {
 static uint8_t dev_port[2] = { 0x12, 0x34 };
 static uint8_t app_port[2] = { 0x56, 0x78 };
 
+/* These must match your rule if you want exact byte recovery */
+static const uint8_t  k_ipv6_hop_limit = 255;
+static const uint32_t k_ipv6_flow_label = 0; /* 20-bit value */
+
+/* -------------------------------------------------------------------------- */
+
 static rules_t *g_rules = NULL;
 
 static bool mocked_ext_compress(bit_buffer_t *output_bb_ptr, bit_string_t *input_bs_ptr)
 {
     (void)output_bb_ptr;
     (void)input_bs_ptr;
-
     return true;
 }
 
@@ -39,16 +46,10 @@ static bool mocked_ext_decompress(bit_buffer_t *p_out_data, bit_buffer_t *p_in_d
 {
     (void)p_out_data;
     (void)p_in_data;
-
     return true;
 }
 
-static bool l2a_get_dev_iid(uint8_t **iid)
-{
-    if (!iid) return false;
-    *iid = l2_get_id_byte();
-    return true;
-}
+
 
 rules_t *tpl_get_template_rules(void)
 {
@@ -70,39 +71,39 @@ rules_t *tpl_get_template_rules(void)
     static target_value_t ipv6_hl_tv = { TV_BIT_STRING, {{&ipv6_hl, 0, 8}} };
 
     static target_value_t dev_pref_tv = { TV_BIT_STRING, {{dev_ip, 0, 64}} };
-    static target_value_t dev_iid_tv  = { TV_BIT_STRING, {{dev_ip+8, 0, 64}} };
+    static target_value_t dev_iid_tv  = { TV_BIT_STRING, {{dev_ip + 8, 0, 64}} };
     static target_value_t app_pref_tv = { TV_BIT_STRING, {{app_ip, 0, 64}} };
-    static target_value_t app_iid_tv  = { TV_BIT_STRING, {{app_ip+8, 0, 64}} };
+    static target_value_t app_iid_tv  = { TV_BIT_STRING, {{app_ip + 8, 0, 64}} };
 
     static target_value_t dev_port_tv = { TV_BIT_STRING, {{dev_port, 0, 16}} };
     static target_value_t app_port_tv = { TV_BIT_STRING, {{app_port, 0, 16}} };
 
-    static rule_field_t f0  = { FID_IPV6_VERSION, 1, DIR_BI, &ipv6_version_tv, 4,  MO_EQUAL,  {0}, CDA_NOT_SENT };
-    static rule_field_t f1  = { FID_IPV6_TRAFFIC_CLASS,1,DIR_BI,&ipv6_tc_tv,8,MO_EQUAL,{0},CDA_NOT_SENT };
-    static rule_field_t f2  = { FID_IPV6_FLOW_LABEL,1,DIR_BI,&ipv6_fl_tv,20,MO_IGNORE,{0},CDA_NOT_SENT };
-    static rule_field_t f3  = { FID_IPV6_PAYLOAD_LENGTH,1,DIR_BI,NULL,16,MO_IGNORE,{0},CDA_COMPUTE_LENGTH };
-    static rule_field_t f4  = { FID_IPV6_NEXT_HEADER,1,DIR_BI,&ipv6_nh_tv,8,MO_EQUAL,{0},CDA_NOT_SENT };
-    static rule_field_t f5  = { FID_IPV6_HOP_LIMIT,1,DIR_BI,&ipv6_hl_tv,8,MO_IGNORE,{0},CDA_NOT_SENT };
-    static rule_field_t f6  = { FID_IPV6_PREFIX_DEV,1,DIR_BI,&dev_pref_tv,64,MO_EQUAL,{0},CDA_NOT_SENT };
-    static rule_field_t f7  = { FID_IPV6_IID_DEV,1,DIR_BI,&dev_iid_tv,64,MO_EQUAL,{0},CDA_NOT_SENT };
-    static rule_field_t f8  = { FID_IPV6_PREFIX_APP,1,DIR_BI,&app_pref_tv,64,MO_EQUAL,{0},CDA_NOT_SENT };
-    static rule_field_t f9  = { FID_IPV6_IID_APP,1,DIR_BI,&app_iid_tv,64,MO_EQUAL,{0},CDA_NOT_SENT };
-    static rule_field_t f10 = { FID_UDP_PORT_DEV,1,DIR_BI,&dev_port_tv,16,MO_EQUAL,{0},CDA_NOT_SENT };
-    static rule_field_t f11 = { FID_UDP_PORT_APP,1,DIR_BI,&app_port_tv,16,MO_EQUAL,{0},CDA_NOT_SENT };
-    static rule_field_t f12 = { FID_UDP_LENGTH,1,DIR_BI,NULL,16,MO_IGNORE,{0},CDA_COMPUTE_LENGTH };
-    static rule_field_t f13 = { FID_UDP_CHECKSUM,1,DIR_BI,NULL,16,MO_IGNORE,{0},CDA_COMPUTE_CHECKSUM };
+    static rule_field_t f0  = { FID_IPV6_VERSION,        1, DIR_BI, &ipv6_version_tv, 4,  MO_EQUAL,  {0}, CDA_NOT_SENT };
+    static rule_field_t f1  = { FID_IPV6_TRAFFIC_CLASS,  1, DIR_BI, &ipv6_tc_tv,      8,  MO_EQUAL,  {0}, CDA_NOT_SENT };
+    static rule_field_t f2  = { FID_IPV6_FLOW_LABEL,     1, DIR_BI, &ipv6_fl_tv,      20, MO_IGNORE, {0}, CDA_NOT_SENT };
+    static rule_field_t f3  = { FID_IPV6_PAYLOAD_LENGTH, 1, DIR_BI, NULL,             16, MO_IGNORE, {0}, CDA_COMPUTE_LENGTH };
+    static rule_field_t f4  = { FID_IPV6_NEXT_HEADER,    1, DIR_BI, &ipv6_nh_tv,      8,  MO_EQUAL,  {0}, CDA_NOT_SENT };
+    static rule_field_t f5  = { FID_IPV6_HOP_LIMIT,      1, DIR_BI, &ipv6_hl_tv,      8,  MO_IGNORE, {0}, CDA_NOT_SENT };
+    static rule_field_t f6  = { FID_IPV6_PREFIX_DEV,     1, DIR_BI, &dev_pref_tv,     64, MO_EQUAL,  {0}, CDA_NOT_SENT };
+    static rule_field_t f7  = { FID_IPV6_IID_DEV,        1, DIR_BI, &dev_iid_tv,      64, MO_EQUAL,  {0}, CDA_NOT_SENT };
+    static rule_field_t f8  = { FID_IPV6_PREFIX_APP,     1, DIR_BI, &app_pref_tv,     64, MO_EQUAL,  {0}, CDA_NOT_SENT };
+    static rule_field_t f9  = { FID_IPV6_IID_APP,        1, DIR_BI, &app_iid_tv,      64, MO_EQUAL,  {0}, CDA_NOT_SENT };
+    static rule_field_t f10 = { FID_UDP_PORT_DEV,        1, DIR_BI, &dev_port_tv,     16, MO_EQUAL,  {0}, CDA_NOT_SENT };
+    static rule_field_t f11 = { FID_UDP_PORT_APP,        1, DIR_BI, &app_port_tv,     16, MO_EQUAL,  {0}, CDA_NOT_SENT };
+    static rule_field_t f12 = { FID_UDP_LENGTH,          1, DIR_BI, NULL,             16, MO_IGNORE, {0}, CDA_COMPUTE_LENGTH };
+    static rule_field_t f13 = { FID_UDP_CHECKSUM,        1, DIR_BI, NULL,             16, MO_IGNORE, {0}, CDA_COMPUTE_CHECKSUM };
 
     static rule_field_t *ipv6udp_fields[14];
     static rule_t ipv6udp_rule;
 
     init_rule(&ipv6udp_rule, IPV6_UDP_RULE_ID, STACK_IPV6_UDP, ipv6udp_fields);
-    add_rule_field(&ipv6udp_rule,&f0); add_rule_field(&ipv6udp_rule,&f1);
-    add_rule_field(&ipv6udp_rule,&f2); add_rule_field(&ipv6udp_rule,&f3);
-    add_rule_field(&ipv6udp_rule,&f4); add_rule_field(&ipv6udp_rule,&f5);
-    add_rule_field(&ipv6udp_rule,&f6); add_rule_field(&ipv6udp_rule,&f7);
-    add_rule_field(&ipv6udp_rule,&f8); add_rule_field(&ipv6udp_rule,&f9);
-    add_rule_field(&ipv6udp_rule,&f10);add_rule_field(&ipv6udp_rule,&f11);
-    add_rule_field(&ipv6udp_rule,&f12);add_rule_field(&ipv6udp_rule,&f13);
+    add_rule_field(&ipv6udp_rule,&f0);  add_rule_field(&ipv6udp_rule,&f1);
+    add_rule_field(&ipv6udp_rule,&f2);  add_rule_field(&ipv6udp_rule,&f3);
+    add_rule_field(&ipv6udp_rule,&f4);  add_rule_field(&ipv6udp_rule,&f5);
+    add_rule_field(&ipv6udp_rule,&f6);  add_rule_field(&ipv6udp_rule,&f7);
+    add_rule_field(&ipv6udp_rule,&f8);  add_rule_field(&ipv6udp_rule,&f9);
+    add_rule_field(&ipv6udp_rule,&f10); add_rule_field(&ipv6udp_rule,&f11);
+    add_rule_field(&ipv6udp_rule,&f12); add_rule_field(&ipv6udp_rule,&f13);
 
     /* ===================== RULE SET ===================== */
 
@@ -115,7 +116,7 @@ rules_t *tpl_get_template_rules(void)
     return &rules;
 }
 
-schc_status_t schc_service_init()
+schc_status_t schc_service_init(void)
 {
     g_rules = tpl_get_template_rules();
     return SCHC_OK;
@@ -127,7 +128,8 @@ schc_status_t schc_service_compress(const uint8_t *in, size_t in_len,
 {
     if (!in || !out || !out_len) return SCHC_ERR;
     if (in_len > UINT16_MAX || out_cap > UINT16_MAX) return SCHC_ERR;
-    if (g_rules == NULL) {
+
+    if (!g_rules) {
         zlog_error(error_cat, "SCHC is not initialized");
         return SCHC_ERR;
     }
@@ -137,7 +139,7 @@ schc_status_t schc_service_compress(const uint8_t *in, size_t in_len,
     comp_callbacks_t cb = {0};
     cb.ext_compress   = mocked_ext_compress;
     cb.ext_decompress = mocked_ext_decompress;
-    cb.get_dev_iid    = l2a_get_dev_iid;
+    /* cb.get_dev_iid intentionally not set: IID is fixed in the rule */
 
     const comp_status_t st = schc_compress(
         g_rules,
@@ -153,7 +155,7 @@ schc_status_t schc_service_compress(const uint8_t *in, size_t in_len,
         zlog_info(ok_cat, "SCHC rule not found, using no compression rule %d", NO_COMP_RULE_ID);
         out[0] = g_rules->default_rule_id;
         memcpy(out + 1, in, in_len);
-        *out_len = (in_len + 1) * CHAR_BIT; // 1 byte for the rule ID
+        *out_len = in_len + 1;
         return SCHC_OK;
     }
 
@@ -165,3 +167,21 @@ schc_status_t schc_service_compress(const uint8_t *in, size_t in_len,
     *out_len = (comp_bits + 7) / 8;
     return SCHC_OK;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Getters for main.c                                    */
+/* -------------------------------------------------------------------------- */
+
+const uint8_t* schc_service_dev_ip(void) { return dev_ip; }
+const uint8_t* schc_service_app_ip(void) { return app_ip; }
+
+uint16_t schc_service_dev_port(void) {
+    return (uint16_t)((dev_port[0] << 8) | dev_port[1]);
+}
+
+uint16_t schc_service_app_port(void) {
+    return (uint16_t)((app_port[0] << 8) | app_port[1]);
+}
+
+uint8_t schc_service_hop_limit(void) { return k_ipv6_hop_limit; }
+uint32_t schc_service_flow_label(void) { return k_ipv6_flow_label; }

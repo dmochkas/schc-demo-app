@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <string.h>
 
 #include <ahoi_serial/ahoi_defs.h>
 #include <ahoi_serial/core.h>
@@ -10,6 +11,7 @@
 #include "schc_demo_app/cli_helper.h"
 #include "schc_demo_app/services/sensor_service.h"
 #include "schc_demo_app/services/schc_service.h"
+#include "schc_demo_app/net/ipv6_udp_builder.h"
 
 #ifndef SENSOR_SLEEP_SEC
 #define SENSOR_SLEEP_SEC 3
@@ -17,15 +19,44 @@
 
 const double SLEEP_MEAN_MS = SENSOR_SLEEP_SEC * 1000.0;
 
-int main(int argc, char *argv[]) {
+static void dump_hex(const char *label, const uint8_t *buf, size_t len)
+{
+    printf("\n=== %s (len=%zu) ===\n", label, len);
+    for (size_t i = 0; i < len; i++) {
+        printf("%02x ", buf[i]);
+        if ((i + 1) % 16 == 0)
+            printf("\n");
+    }
+    if (len % 16 != 0)
+        printf("\n");
+}
+
+static void init_net_cfg_from_schc(ipv6_udp_cfg_t *cfg)
+{
+    memset(cfg, 0, sizeof(*cfg));
+
+    memcpy(cfg->src_ip, schc_service_dev_ip(), 16);
+    memcpy(cfg->dst_ip, schc_service_app_ip(), 16);
+
+    cfg->src_port = schc_service_dev_port();
+    cfg->dst_port = schc_service_app_port();
+
+    cfg->traffic_class = 0;
+    cfg->next_header = 17;
+
+    /* For exact byte recovery with your current rule: */
+    cfg->hop_limit = schc_service_hop_limit();
+}
+
+int main(int argc, char *argv[])
+{
     if (logger_init() != LOGGER_INIT_OK) {
         fprintf(stderr, "Logger initialization failed\n");
         return EXIT_FAILURE;
     }
-
     zlog_info(ok_cat, "Logger initialized");
 
-    srand((unsigned) time(NULL));
+    srand((unsigned)time(NULL));
 
     uint8_t id_arg = 0x00;
     uint8_t key_arg[KEY_SIZE];
@@ -37,7 +68,6 @@ int main(int argc, char *argv[]) {
         zlog_fini();
         return EXIT_FAILURE;
     }
-
     zlog_info(ok_cat, "Cli arg parse OK");
 
     l2_set_id(id_arg);
@@ -51,14 +81,12 @@ int main(int argc, char *argv[]) {
         zlog_error(error_cat, "Layer 2 init failed");
         return EXIT_FAILURE;
     }
-
     zlog_info(ok_cat, "Layer 2 init OK");
 
     if (schc_service_init() != SCHC_OK) {
         zlog_error(error_cat, "SCHC init failed");
         return EXIT_FAILURE;
     }
-
     zlog_info(ok_cat, "SCHC service init OK");
 
     static sensor_data_t sensor_data = {0};
@@ -71,35 +99,54 @@ int main(int argc, char *argv[]) {
     p.pl_size = 0;
     p.payload = NULL;
 
+    static ipv6_udp_cfg_t net_cfg;
+    init_net_cfg_from_schc(&net_cfg);
+
     uint32_t seq = 0;
     for (;;) {
         sleep_gaussian(SLEEP_MEAN_MS);
 
         zlog_info(ok_cat, "Sensing data...");
-        measure(&sensor_data);
+        (void)measure(&sensor_data);
 
-        p.seq = seq;
+        /* For exact byte recovery with your current rule: */
+        const uint32_t flow_label = schc_service_flow_label();
 
-        /* Input payload (current dummy bytes): raw sensor_data struct */
-        const uint8_t *in_payload = (const uint8_t *) &sensor_data;
-        const size_t in_len = sizeof(sensor_data);
+        static uint8_t ipv6udp_pkt[256];
+        size_t ipv6udp_len = 0;
 
-        /* SCHC output buffer: must be >= in_len + 1 for dummy mode (RuleID + payload) */
+        if (build_ipv6_udp_packet(&net_cfg, flow_label,
+                                  (const uint8_t *)&sensor_data, sizeof(sensor_data),
+                                  ipv6udp_pkt, sizeof(ipv6udp_pkt),
+                                  &ipv6udp_len) != 0) {
+            zlog_error(error_cat, "IPv6/UDP packet build failed");
+            seq++;
+            continue;
+        }
+
+        dump_hex("IPv6+UDP packet BEFORE SCHC", ipv6udp_pkt, ipv6udp_len);
+
         static uint8_t schc_buf[256];
         size_t schc_len = 0;
 
-        if (schc_service_compress(in_payload, in_len, schc_buf, sizeof(schc_buf), &schc_len) != SCHC_OK) {
+        if (schc_service_compress(ipv6udp_pkt, ipv6udp_len,
+                                  schc_buf, sizeof(schc_buf),
+                                  &schc_len) != SCHC_OK) {
             zlog_error(error_cat, "SCHC compress failed for seq=%u", seq);
             seq++;
             continue;
         }
 
+        dump_hex("SCHC packet AFTER compression", schc_buf, schc_len);
+
         if (schc_len > MAX_PAYLOAD_SIZE) {
             zlog_error(error_cat, "Max payload size exceeded!");
+            seq++;
             continue;
         }
 
-        p.pl_size = (uint8_t) schc_len;
+        p.seq = seq;
+        p.pl_size = (uint8_t)schc_len;
         p.payload = schc_buf;
 
         l2_send_prepare(&p);
@@ -109,7 +156,6 @@ int main(int argc, char *argv[]) {
         }
 
         print_packet(&p);
-
         seq++;
     }
 }

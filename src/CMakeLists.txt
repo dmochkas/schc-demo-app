@@ -1,4 +1,3 @@
-
 set(EXEC_NAME "schc-demo-app")
 set(UTILS "utils-lib")
 set(LOGGER_LIB "logger-lib")
@@ -6,6 +5,9 @@ set(CLI_LIB "cli-lib")
 set(AHOI_SERVICE "ahoi-service-lib")
 set(SCHC_SERVICE "schc-service-lib")
 set(SENSOR_SERVICE "sensor-service-lib")
+
+# New: packet builder module (IPv6 + UDP + payload)
+set(NET_BUILDER_LIB "net-builder-lib")
 
 add_library(${UTILS} OBJECT "utils.c")
 target_include_directories(${UTILS} PRIVATE "${PROJECT_SOURCE_DIR}/include/schc_demo_app")
@@ -39,7 +41,20 @@ target_include_directories(${SENSOR_SERVICE} PRIVATE
         "${PROJECT_SOURCE_DIR}/include/schc_demo_app/"
         "${PROJECT_SOURCE_DIR}/include/schc_demo_app/services")
 
-add_executable(${EXEC_NAME} "main.c" $<TARGET_OBJECTS:${UTILS}> $<TARGET_OBJECTS:${CLI_LIB}>
-        $<TARGET_OBJECTS:${SCHC_SERVICE}> $<TARGET_OBJECTS:${SENSOR_SERVICE}> $<TARGET_OBJECTS:${LOGGER_LIB}>)
+# New: builder object library
+# File to add: src/ipv6_udp_builder.c
+add_library(${NET_BUILDER_LIB} OBJECT "ipv6_udp_builder.c")
+target_include_directories(${NET_BUILDER_LIB} PRIVATE "${PROJECT_SOURCE_DIR}/include")
+
+add_executable(${EXEC_NAME}
+        "main.c"
+        $<TARGET_OBJECTS:${UTILS}>
+        $<TARGET_OBJECTS:${CLI_LIB}>
+        $<TARGET_OBJECTS:${SCHC_SERVICE}>
+        $<TARGET_OBJECTS:${SENSOR_SERVICE}>
+        $<TARGET_OBJECTS:${LOGGER_LIB}>
+        $<TARGET_OBJECTS:${NET_BUILDER_LIB}>
+)
+
 target_include_directories(${EXEC_NAME} PRIVATE "${PROJECT_SOURCE_DIR}/include")
 target_link_libraries(${EXEC_NAME} ${L2_LIB} ${SCHC_FULL_SDK_LIB} ${AHOI_SERIAL_LIB} ${ZLOG_LIB} m)
