@@ -6,7 +6,7 @@ set(AHOI_SERVICE "ahoi-service-lib")
 set(SCHC_SERVICE "schc-service-lib")
 set(SENSOR_SERVICE "sensor-service-lib")
 
-# New: packet builder module (IPv6 + UDP + payload)
+# Packet builder module (IPv6 + UDP + CoAP + payload)
 set(NET_BUILDER_LIB "net-builder-lib")
 
 add_library(${UTILS} OBJECT "utils.c")
@@ -41,9 +41,10 @@ target_include_directories(${SENSOR_SERVICE} PRIVATE
         "${PROJECT_SOURCE_DIR}/include/schc_demo_app/"
         "${PROJECT_SOURCE_DIR}/include/schc_demo_app/services")
 
-# New: builder object library
-# File to add: src/ipv6_udp_builder.c
-add_library(${NET_BUILDER_LIB} OBJECT "ipv6_udp_builder.c")
+# Builder object library (ONLY CoAP builder now)
+add_library(${NET_BUILDER_LIB} OBJECT
+        "ipv6_udp_coap_builder.c"
+)
 target_include_directories(${NET_BUILDER_LIB} PRIVATE "${PROJECT_SOURCE_DIR}/include")
 
 add_executable(${EXEC_NAME}
