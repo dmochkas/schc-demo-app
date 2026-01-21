@@ -24,3 +24,5 @@ uint16_t schc_service_dev_port(void);
 uint16_t schc_service_app_port(void);
 uint8_t  schc_service_hop_limit(void);
 uint32_t schc_service_flow_label(void);
+uint8_t  schc_service_coap_code(void);
+uint16_t schc_service_coap_msg_id_base(void);

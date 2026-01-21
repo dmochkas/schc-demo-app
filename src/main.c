@@ -11,7 +11,10 @@
 #include "schc_demo_app/cli_helper.h"
 #include "schc_demo_app/services/sensor_service.h"
 #include "schc_demo_app/services/schc_service.h"
+
+
 #include "schc_demo_app/net/ipv6_udp_builder.h"
+#include "schc_demo_app/net/ipv6_udp_coap_builder.h"    /* new builder */
 
 #ifndef SENSOR_SLEEP_SEC
 #define SENSOR_SLEEP_SEC 3
@@ -44,7 +47,7 @@ static void init_net_cfg_from_schc(ipv6_udp_cfg_t *cfg)
     cfg->traffic_class = 0;
     cfg->next_header = 17;
 
-    /* For exact byte recovery with your current rule: */
+    /* For exact byte recovery with  current rule: */
     cfg->hop_limit = schc_service_hop_limit();
 }
 
@@ -109,27 +112,35 @@ int main(int argc, char *argv[])
         zlog_info(ok_cat, "Sensing data...");
         (void)measure(&sensor_data);
 
-        /* For exact byte recovery with your current rule: */
+
         const uint32_t flow_label = schc_service_flow_label();
 
-        static uint8_t ipv6udp_pkt[256];
-        size_t ipv6udp_len = 0;
+        static uint8_t ipv6udpcoap_pkt[256];
+        size_t ipv6udpcoap_len = 0;
 
-        if (build_ipv6_udp_packet(&net_cfg, flow_label,
-                                  (const uint8_t *)&sensor_data, sizeof(sensor_data),
-                                  ipv6udp_pkt, sizeof(ipv6udp_pkt),
-                                  &ipv6udp_len) != 0) {
-            zlog_error(error_cat, "IPv6/UDP packet build failed");
+        /* CoAP parameters (must match SCHC rule expectations) */
+        const uint8_t  coap_code     = schc_service_coap_code();
+        const uint16_t mid_base      = schc_service_coap_msg_id_base();
+        const uint8_t  mid_lsb4_dyn  = (uint8_t)(seq & 0x0Fu); /* dynamic last 4 bits */
+
+        if (build_ipv6_udp_coap_packet(&net_cfg, flow_label,
+                                       coap_code,
+                                       mid_base,
+                                       mid_lsb4_dyn,
+                                       (const uint8_t *)&sensor_data, sizeof(sensor_data),
+                                       ipv6udpcoap_pkt, sizeof(ipv6udpcoap_pkt),
+                                       &ipv6udpcoap_len) != 0) {
+            zlog_error(error_cat, "IPv6/UDP/CoAP packet build failed");
             seq++;
             continue;
         }
 
-        dump_hex("IPv6+UDP packet BEFORE SCHC", ipv6udp_pkt, ipv6udp_len);
+        dump_hex("IPv6+UDP+CoAP packet BEFORE SCHC", ipv6udpcoap_pkt, ipv6udpcoap_len);
 
         static uint8_t schc_buf[256];
         size_t schc_len = 0;
 
-        if (schc_service_compress(ipv6udp_pkt, ipv6udp_len,
+        if (schc_service_compress(ipv6udpcoap_pkt, ipv6udpcoap_len,
                                   schc_buf, sizeof(schc_buf),
                                   &schc_len) != SCHC_OK) {
             zlog_error(error_cat, "SCHC compress failed for seq=%u", seq);
