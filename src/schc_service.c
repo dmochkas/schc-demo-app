@@ -30,7 +30,6 @@ static uint8_t app_ip[16] = {
 static uint8_t dev_port[2] = { 0x12, 0x34 };
 static uint8_t app_port[2] = { 0x56, 0x78 };
 
-/* These must match your rule if you want exact byte recovery */
 static const uint8_t  k_ipv6_hop_limit  = 255;
 static const uint32_t k_ipv6_flow_label = 0; /* 20-bit value */
 
@@ -38,10 +37,11 @@ static const uint32_t k_ipv6_flow_label = 0; /* 20-bit value */
 /* CoAP context                                                               */
 /* -------------------------------------------------------------------------- */
 
+/* POST */
+static const uint8_t  k_coap_code = 0x02;
 
-static const uint8_t  k_coap_code = 0x03;
+/* Upper 12 bits fixed, last 4 bits dynamic (sent) */
 static const uint16_t k_coap_msg_id_base = 0x3030;
-
 
 static rules_t *g_rules = NULL;
 
@@ -92,44 +92,42 @@ rules_t *tpl_get_template_rules(void)
 
     /* ---------- CoAP fixed values ---------- */
 
-    /* CoAP Version: Ver=1 => binary 01 in the 2 MSB bits (only 2 bits used) */
-    static uint8_t coap_version = 0b01000000;
+    /* CoAP Version=1 => bits "01" in the 2 MSB bits */
+    static uint8_t coap_version = 0x40; /* 0b01xxxxxx */
     static target_value_t coap_version_tv = { TV_BIT_STRING, {{&coap_version, 0, 2}} };
 
-    /* CoAP Type: 0 (CON), only 2 bits used */
-    static uint8_t coap_type = 0;
+    /* CoAP Type=NON(1) => bits "01" in the 2 MSB bits */
+    static uint8_t coap_type = 0x40; /* 0b01xxxxxx */
     static target_value_t coap_type_tv = { TV_BIT_STRING, {{&coap_type, 0, 2}} };
 
-    /* CoAP Token Length (TKL): 0, only 4 bits used */
+    /* TKL = 0 (4 bits) */
     static uint8_t coap_tkl = 0;
     static target_value_t coap_tkl_tv = { TV_BIT_STRING, {{&coap_tkl, 0, 4}} };
 
-    /* CoAP Code fixed */
+    /* Code = POST (0x02) */
     static uint8_t coap_code = k_coap_code;
     static target_value_t coap_code_tv = { TV_BIT_STRING, {{&coap_code, 0, 8}} };
 
-    /* CoAP Message ID target value (LSB nibble will be dynamic) */
+    /* Message ID target value (LSB nibble will be dynamic) */
     static uint8_t coap_msg_id[2] = {
         (uint8_t)(k_coap_msg_id_base >> 8),
         (uint8_t)(k_coap_msg_id_base & 0xFFu)
     };
     static target_value_t coap_msg_id_tv = { TV_BIT_STRING, {{coap_msg_id, 0, 16}} };
 
-    /* Options must match builder exactly */
-    static uint8_t coap_uri_host[] = {0x6C,0x6F,0x63,0x61,0x6C,0x68,0x6F,0x73,0x74}; /* "localhost" */
-    static target_value_t coap_uri_host_tv = { TV_BIT_STRING, {{coap_uri_host, 0, sizeof(coap_uri_host) * 8}} };
+    /* ONLY OPTIONS:
+     *  - Uri-Path #1 = "sensor"
+     *  - Uri-Path #2 = "data"
+     */
+    static uint8_t coap_uri_path_sensor[] = { 's','e','n','s','o','r' };
+    static target_value_t coap_uri_path_sensor_tv = {
+        TV_BIT_STRING, {{ coap_uri_path_sensor, 0, sizeof(coap_uri_path_sensor) * 8 }}
+    };
 
-    static uint8_t coap_uri_port[] = {0x04, 0xD2}; /* 1234 */
-    static target_value_t coap_uri_port_tv = { TV_BIT_STRING, {{coap_uri_port, 0, 16}} };
-
-    static uint8_t coap_uri_path_1[] = {0x66,0x6F,0x6F}; /* "foo" */
-    static target_value_t coap_uri_path_1_tv = { TV_BIT_STRING, {{coap_uri_path_1, 0, sizeof(coap_uri_path_1) * 8}} };
-
-    static uint8_t coap_uri_path_2[] = {0x62,0x61,0x72}; /* "bar" */
-    static target_value_t coap_uri_path_2_tv = { TV_BIT_STRING, {{coap_uri_path_2, 0, sizeof(coap_uri_path_2) * 8}} };
-
-    static uint8_t coap_uri_query[] = {0x64,0x62,0x3D,0x64,0x62}; /* "db=db" */
-    static target_value_t coap_uri_query_tv = { TV_BIT_STRING, {{coap_uri_query, 0, sizeof(coap_uri_query) * 8}} };
+    static uint8_t coap_uri_path_data[] = { 'd','a','t','a' };
+    static target_value_t coap_uri_path_data_tv = {
+        TV_BIT_STRING, {{ coap_uri_path_data, 0, sizeof(coap_uri_path_data) * 8 }}
+    };
 
     /* ---------- Rule fields ---------- */
 
@@ -154,21 +152,17 @@ rules_t *tpl_get_template_rules(void)
     static rule_field_t f16 = { FID_COAP_TOKEN_LENGTH,   1, DIR_BI, &coap_tkl_tv,     4,  MO_EQUAL, {0}, CDA_NOT_SENT };
     static rule_field_t f17 = { FID_COAP_CODE,           1, DIR_BI, &coap_code_tv,    8,  MO_EQUAL, {0}, CDA_NOT_SENT };
 
-    /* Leave last 4 bits of Message ID dynamic (send LSB 4 bits) */
-    static rule_field_t f18 = { FID_COAP_MSG_ID,         1, DIR_BI, &coap_msg_id_tv,  16, MO_MSB,   {4}, CDA_LSB };
+    /* Keep last 4 bits dynamic (send LSB 4 bits) */
+    static rule_field_t f18 = { FID_COAP_MSG_ID,         1, DIR_BI, &coap_msg_id_tv,  16, MO_MSB,   {12}, CDA_LSB };
 
-    /* Token is empty (TKL=0). Keep as ignore/value-sent for flexibility. */
+    /* Token is empty (TKL=0). */
     static rule_field_t f19 = { FID_COAP_TOKEN,          1, DIR_BI, NULL,             0xFFFF, MO_IGNORE, {0}, CDA_VALUE_SENT };
 
-    static rule_field_t f20 = { FID_COAP_URI_HOST,       1, DIR_BI, &coap_uri_host_tv, 0, MO_EQUAL,  {0}, CDA_NOT_SENT };
-    static rule_field_t f21 = { FID_COAP_URI_PORT,       1, DIR_BI, &coap_uri_port_tv, 0, MO_EQUAL,  {0}, CDA_NOT_SENT };
+    /* Two Uri-Path options: positions 1 and 2 */
+    static rule_field_t f20 = { FID_COAP_URI_PATH,       1, DIR_BI, &coap_uri_path_sensor_tv, 0, MO_EQUAL, {0}, CDA_NOT_SENT };
+    static rule_field_t f21 = { FID_COAP_URI_PATH,       2, DIR_BI, &coap_uri_path_data_tv,   0, MO_EQUAL, {0}, CDA_NOT_SENT };
 
-    /* Keep same MO/CDA style as your unit test */
-    static rule_field_t f22 = { FID_COAP_URI_PATH,       1, DIR_BI, &coap_uri_path_1_tv, 0, MO_IGNORE, {0}, CDA_VALUE_SENT };
-    static rule_field_t f23 = { FID_COAP_URI_PATH,       2, DIR_BI, &coap_uri_path_2_tv, 0, MO_IGNORE, {0}, CDA_VALUE_SENT };
-    static rule_field_t f24 = { FID_COAP_URI_QUERY,      1, DIR_BI, &coap_uri_query_tv,  0, MO_IGNORE, {0}, CDA_VALUE_SENT };
-
-    static rule_field_t *ipv6udpcoap_fields[25];
+    static rule_field_t *ipv6udpcoap_fields[22];
     static rule_t ipv6udpcoap_rule;
 
     init_rule(&ipv6udpcoap_rule, IPV6_UDP_COAP_RULE_ID, STACK_IPV6_UDP_COAP, ipv6udpcoap_fields);
@@ -184,9 +178,9 @@ rules_t *tpl_get_template_rules(void)
     add_rule_field(&ipv6udpcoap_rule,&f14); add_rule_field(&ipv6udpcoap_rule,&f15);
     add_rule_field(&ipv6udpcoap_rule,&f16); add_rule_field(&ipv6udpcoap_rule,&f17);
     add_rule_field(&ipv6udpcoap_rule,&f18); add_rule_field(&ipv6udpcoap_rule,&f19);
-    add_rule_field(&ipv6udpcoap_rule,&f20); add_rule_field(&ipv6udpcoap_rule,&f21);
-    add_rule_field(&ipv6udpcoap_rule,&f22); add_rule_field(&ipv6udpcoap_rule,&f23);
-    add_rule_field(&ipv6udpcoap_rule,&f24);
+
+    add_rule_field(&ipv6udpcoap_rule,&f20);
+    add_rule_field(&ipv6udpcoap_rule,&f21);
 
     /* ===================== RULE SET ===================== */
 
@@ -222,7 +216,6 @@ schc_status_t schc_service_compress(const uint8_t *in, size_t in_len,
     comp_callbacks_t cb = {0};
     cb.ext_compress   = mocked_ext_compress;
     cb.ext_decompress = mocked_ext_decompress;
-    /* cb.get_dev_iid intentionally not set: IID is fixed in the rule */
 
     const comp_status_t st = schc_compress(
         g_rules,
@@ -236,7 +229,7 @@ schc_status_t schc_service_compress(const uint8_t *in, size_t in_len,
 
     if (st == COMP_RULES_NOT_FOUND_ERR) {
         zlog_info(ok_cat, "SCHC rule not found, using no compression rule %d", NO_COMP_RULE_ID);
-        out[0] = g_rules->default_rule_id;
+        out[0] = g_rules->default_rule_id; /* = NO_COMP_RULE_ID */
         memcpy(out + 1, in, in_len);
         *out_len = in_len + 1;
         return SCHC_OK;
@@ -252,7 +245,7 @@ schc_status_t schc_service_compress(const uint8_t *in, size_t in_len,
 }
 
 /* -------------------------------------------------------------------------- */
-/* Getters for main.c                                                          */
+/* Getters for main.c                                                         */
 /* -------------------------------------------------------------------------- */
 
 const uint8_t* schc_service_dev_ip(void) { return dev_ip; }

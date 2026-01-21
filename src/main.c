@@ -12,9 +12,7 @@
 #include "schc_demo_app/services/sensor_service.h"
 #include "schc_demo_app/services/schc_service.h"
 
-
-#include "schc_demo_app/net/ipv6_udp_builder.h"
-#include "schc_demo_app/net/ipv6_udp_coap_builder.h"    /* new builder */
+#include "schc_demo_app/net/ipv6_udp_coap_builder.h"
 
 #ifndef SENSOR_SLEEP_SEC
 #define SENSOR_SLEEP_SEC 3
@@ -47,7 +45,6 @@ static void init_net_cfg_from_schc(ipv6_udp_cfg_t *cfg)
     cfg->traffic_class = 0;
     cfg->next_header = 17;
 
-    /* For exact byte recovery with  current rule: */
     cfg->hop_limit = schc_service_hop_limit();
 }
 
@@ -112,16 +109,15 @@ int main(int argc, char *argv[])
         zlog_info(ok_cat, "Sensing data...");
         (void)measure(&sensor_data);
 
-
         const uint32_t flow_label = schc_service_flow_label();
 
         static uint8_t ipv6udpcoap_pkt[256];
         size_t ipv6udpcoap_len = 0;
 
         /* CoAP parameters (must match SCHC rule expectations) */
-        const uint8_t  coap_code     = schc_service_coap_code();
-        const uint16_t mid_base      = schc_service_coap_msg_id_base();
-        const uint8_t  mid_lsb4_dyn  = (uint8_t)(seq & 0x0Fu); /* dynamic last 4 bits */
+        const uint8_t  coap_code     = schc_service_coap_code();        /* 0x02 POST */
+        const uint16_t mid_base      = schc_service_coap_msg_id_base(); /* fixed upper 12 bits */
+        const uint8_t  mid_lsb4_dyn  = (uint8_t)(seq & 0x0Fu);          /* dynamic last 4 bits */
 
         if (build_ipv6_udp_coap_packet(&net_cfg, flow_label,
                                        coap_code,
@@ -162,9 +158,7 @@ int main(int argc, char *argv[])
 
         l2_send_prepare(&p);
 
-        if (l2_send_run(p.payload, p.pl_size) != L2_SEND_OK) {
-            zlog_error(error_cat, "Error sending packet %u", seq);
-        }
+        (void)l2_send_run(p.payload, p.pl_size);
 
         print_packet(&p);
         seq++;

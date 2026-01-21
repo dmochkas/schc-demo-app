@@ -20,6 +20,11 @@ static inline uint16_t ones_complement(uint32_t sum) {
     return (uint16_t)(~sum);
 }
 
+/**
+ * UDP checksum for IPv6 (pseudo-header + UDP header+payload).
+ * Assumes udp points to UDP header start (8 bytes) followed by payload.
+ * The UDP checksum field must be treated as 0 while computing.
+ */
 static uint16_t udp_checksum_ipv6(const uint8_t src_ip[16],
                                   const uint8_t dst_ip[16],
                                   const uint8_t *udp,
@@ -27,80 +32,115 @@ static uint16_t udp_checksum_ipv6(const uint8_t src_ip[16],
 {
     uint32_t sum = 0;
 
+    /* Pseudo-header: src and dst (16 bytes each) */
     for (int i = 0; i < 16; i += 2) {
-        sum = sum16_add(sum, (uint16_t)((src_ip[i] << 8) | src_ip[i + 1]));
+        uint16_t w = (uint16_t)((src_ip[i] << 8) | src_ip[i + 1]);
+        sum = sum16_add(sum, w);
     }
     for (int i = 0; i < 16; i += 2) {
-        sum = sum16_add(sum, (uint16_t)((dst_ip[i] << 8) | dst_ip[i + 1]));
-    }
-
-    // UDP length (32-bit)
-    sum = sum16_add(sum, (uint16_t)((udp_len >> 16) & 0xFFFFu));
-    sum = sum16_add(sum, (uint16_t)(udp_len & 0xFFFFu));
-
-    // Next header (32-bit): 0x00000011 for UDP
-    sum = sum16_add(sum, 0x0000);
-    sum = sum16_add(sum, 0x0011);
-
-    // UDP header + payload (checksum field treated as zero)
-    for (size_t i = 0; i + 1 < udp_len; i += 2) {
-        uint16_t w;
-        if (i == 6) w = 0x0000; // checksum field
-        else        w = (uint16_t)((udp[i] << 8) | udp[i + 1]);
+        uint16_t w = (uint16_t)((dst_ip[i] << 8) | dst_ip[i + 1]);
         sum = sum16_add(sum, w);
     }
 
+    /* Pseudo-header: UDP length (32-bit) */
+    sum = sum16_add(sum, (uint16_t)((udp_len >> 16) & 0xFFFFu));
+    sum = sum16_add(sum, (uint16_t)(udp_len & 0xFFFFu));
+
+    /* Pseudo-header: next header (32-bit: 0x00000011 for UDP) */
+    sum = sum16_add(sum, 0x0000);
+    sum = sum16_add(sum, 0x0011);
+
+    /* UDP header + payload (checksum field treated as zero) */
+    for (size_t i = 0; i + 1 < udp_len; i += 2) {
+        uint16_t w;
+        if (i == 6) {
+            w = 0x0000; /* checksum field */
+        } else {
+            w = (uint16_t)((udp[i] << 8) | udp[i + 1]);
+        }
+        sum = sum16_add(sum, w);
+    }
+
+    /* Odd length padding */
     if (udp_len & 1u) {
-        sum = sum16_add(sum, (uint16_t)(udp[udp_len - 1] << 8));
+        uint16_t w = (uint16_t)(udp[udp_len - 1] << 8);
+        sum = sum16_add(sum, w);
     }
 
     uint16_t csum = ones_complement(sum);
-    if (csum == 0x0000) csum = 0xFFFF;
+    if (csum == 0x0000) csum = 0xFFFF; /* per convention */
     return csum;
 }
 
-/**
- * CoAP options encoder for this fixed sequence:
- *  - Uri-Host (3)   = "localhost" (len 9)      => first option: delta=3, len=9 => 0x39
- *  - Uri-Port (7)   = 1234 (0x04D2) (len 2)    => delta=4, len=2 => 0x42
- *  - Uri-Path (11)  = "foo" (len 3)            => delta=4, len=3 => 0x43
- *  - Uri-Path (11)  = "bar" (len 3)            => delta=0, len=3 => 0x03
- *  - Uri-Query (15) = "db=db" (len 5)          => delta=4, len=5 => 0x45
+/* Write CoAP with exactly:
+ *  - NON, TKL=0, Code provided
+ *  - 2 options:
+ *      Uri-Path "sensor"
+ *      Uri-Path "data"
+ *  - payload marker 0xFF + payload bytes
  */
-static size_t write_fixed_coap_options(uint8_t *dst, size_t cap)
+static int write_fixed_coap_packet(uint8_t coap_code,
+                                  uint16_t msg_id_base,
+                                  uint8_t msg_id_lsb4,
+                                  const uint8_t *payload, size_t payload_len,
+                                  uint8_t *out, size_t out_cap,
+                                  size_t *out_len)
 {
-    static const uint8_t host[] = {'l','o','c','a','l','h','o','s','t'};
-    static const uint8_t path1[] = {'f','o','o'};
-    static const uint8_t path2[] = {'b','a','r'};
-    static const uint8_t query[] = {'d','b','=','d','b'};
+    if (!out || !out_len) return -1;
+    if (!payload && payload_len != 0) return -1;
 
-    size_t need = 1 + sizeof(host)
-                + 1 + 2
-                + 1 + sizeof(path1)
-                + 1 + sizeof(path2)
-                + 1 + sizeof(query);
+    /* CoAP header:
+     * Ver=1 (01), Type=NON (01), TKL=0 (0000) => 0b0101 0000 = 0x50
+     */
+    const uint8_t ver_type_tkl = 0x50;
 
-    if (cap < need) return 0;
+    /* Message ID: keep upper 12 bits from base, last 4 bits dynamic */
+    const uint16_t mid = (uint16_t)((msg_id_base & 0xFFF0u) | (uint16_t)(msg_id_lsb4 & 0x0Fu));
 
-    size_t o = 0;
+    /* Option 1: Uri-Path (11), value "sensor" (len 6)
+     * first option => delta=11, length=6 => 0xB6
+     */
+    static const uint8_t uri_path_val_1[] = { 's','e','n','s','o','r' };
+    const uint8_t uri_path_len_1 = (uint8_t)sizeof(uri_path_val_1);
+    const uint8_t opt1_hdr = (uint8_t)((11u << 4) | (uri_path_len_1 & 0x0Fu)); /* 0xB6 */
 
-    dst[o++] = 0x39; // delta=3 len=9
-    memcpy(&dst[o], host, sizeof(host)); o += sizeof(host);
+    /* Option 2: Uri-Path (11 again), value "data" (len 4)
+     * same option number => delta=0, length=4 => 0x04
+     */
+    static const uint8_t uri_path_val_2[] = { 'd','a','t','a' };
+    const uint8_t uri_path_len_2 = (uint8_t)sizeof(uri_path_val_2);
+    const uint8_t opt2_hdr = (uint8_t)((0u << 4) | (uri_path_len_2 & 0x0Fu)); /* 0x04 */
 
-    dst[o++] = 0x42; // delta=4 len=2
-    dst[o++] = 0x04; // 1234
-    dst[o++] = 0xD2;
+    const size_t needed =
+        4 /* CoAP header */ +
+        1 + uri_path_len_1 +
+        1 + uri_path_len_2 +
+        1 /* payload marker */ + payload_len;
 
-    dst[o++] = 0x43; // delta=4 len=3
-    memcpy(&dst[o], path1, sizeof(path1)); o += sizeof(path1);
+    if (out_cap < needed) return -1;
 
-    dst[o++] = 0x03; // delta=0 len=3
-    memcpy(&dst[o], path2, sizeof(path2)); o += sizeof(path2);
+    size_t w = 0;
+    out[w++] = ver_type_tkl;
+    out[w++] = coap_code;
+    out[w++] = (uint8_t)(mid >> 8);
+    out[w++] = (uint8_t)(mid & 0xFF);
 
-    dst[o++] = 0x45; // delta=4 len=5
-    memcpy(&dst[o], query, sizeof(query)); o += sizeof(query);
+    out[w++] = opt1_hdr;
+    memcpy(&out[w], uri_path_val_1, uri_path_len_1);
+    w += uri_path_len_1;
 
-    return o;
+    out[w++] = opt2_hdr;
+    memcpy(&out[w], uri_path_val_2, uri_path_len_2);
+    w += uri_path_len_2;
+
+    out[w++] = 0xFF;
+    if (payload_len) {
+        memcpy(&out[w], payload, payload_len);
+        w += payload_len;
+    }
+
+    *out_len = w;
+    return 0;
 }
 
 int build_ipv6_udp_coap_packet(const ipv6_udp_cfg_t *cfg,
@@ -115,17 +155,23 @@ int build_ipv6_udp_coap_packet(const ipv6_udp_cfg_t *cfg,
     if (!cfg || !out || !out_len) return -1;
     if (!payload && payload_len != 0) return -1;
 
-    // CoAP fixed: header(4) + options(fixed) + payload_marker(1) + payload
-    uint8_t coap_opts[64];
-    const size_t coap_opts_len = write_fixed_coap_options(coap_opts, sizeof(coap_opts));
-    if (coap_opts_len == 0) return -1;
+    /* Build CoAP into a temporary buffer first */
+    uint8_t coap_buf[256];
+    size_t coap_len = 0;
 
-    const size_t coap_len = 4 + coap_opts_len + 1 + payload_len;
+    if (write_fixed_coap_packet(coap_code,
+                                coap_msg_id_base,
+                                coap_msg_id_lsb4,
+                                payload, payload_len,
+                                coap_buf, sizeof(coap_buf),
+                                &coap_len) != 0) {
+        return -1;
+    }
 
     const size_t total_len = IPV6_HDR_LEN + UDP_HDR_LEN + coap_len;
     if (out_cap < total_len) return -1;
 
-    // ---------------- IPv6 header ----------------
+    /* ---------------- IPv6 header ---------------- */
     const uint8_t version = 6;
     const uint8_t tc = cfg->traffic_class;
     const uint32_t fl20 = (flow_lbl & 0x000FFFFFu);
@@ -135,17 +181,17 @@ int build_ipv6_udp_coap_packet(const ipv6_udp_cfg_t *cfg,
     out[2] = (uint8_t)((fl20 >> 8) & 0xFFu);
     out[3] = (uint8_t)(fl20 & 0xFFu);
 
-    // IPv6 payload length = UDP header + CoAP(...)
+    /* IPv6 payload length = UDP header + CoAP */
     const uint16_t ipv6_payload_len = (uint16_t)(UDP_HDR_LEN + coap_len);
     put_u16_be(&out[4], ipv6_payload_len);
 
-    out[6] = cfg->next_header; // 17
-    out[7] = cfg->hop_limit;
+    out[6] = cfg->next_header; /* 17 */
+    out[7] = cfg->hop_limit;   /* 255 */
 
     memcpy(&out[8],  cfg->src_ip, 16);
     memcpy(&out[24], cfg->dst_ip, 16);
 
-    // ---------------- UDP header ----------------
+    /* ---------------- UDP header ---------------- */
     uint8_t *udp = &out[IPV6_HDR_LEN];
 
     put_u16_be(&udp[0], cfg->src_port);
@@ -157,30 +203,10 @@ int build_ipv6_udp_coap_packet(const ipv6_udp_cfg_t *cfg,
     udp[6] = 0x00;
     udp[7] = 0x00;
 
-    // ---------------- CoAP ----------------
-    uint8_t *coap = &out[IPV6_HDR_LEN + UDP_HDR_LEN];
+    /* ---------------- UDP payload (CoAP) ---------------- */
+    memcpy(&out[IPV6_HDR_LEN + UDP_HDR_LEN], coap_buf, coap_len);
 
-    // CoAP first byte: Ver(2)=1 => 01, Type(2)=0 => 00, TKL(4)=0 => 0000
-    // => 0b0100_0000 = 0x40
-    coap[0] = 0x40;
-    coap[1] = coap_code;
-
-    // Message ID: keep MSB 12 bits from base, force LSB 4 bits dynamic
-    const uint16_t msg_id = (uint16_t)((coap_msg_id_base & 0xFFF0u) | (coap_msg_id_lsb4 & 0x0Fu));
-    put_u16_be(&coap[2], msg_id);
-
-    size_t off = 4;
-    memcpy(&coap[off], coap_opts, coap_opts_len);
-    off += coap_opts_len;
-
-    coap[off++] = 0xFF; // payload marker
-
-    if (payload_len) {
-        memcpy(&coap[off], payload, payload_len);
-        off += payload_len;
-    }
-
-    // ---------------- UDP checksum ----------------
+    /* ---------------- Compute UDP checksum (IPv6) ---------------- */
     const uint16_t csum = udp_checksum_ipv6(cfg->src_ip, cfg->dst_ip, udp, (size_t)udp_len16);
     udp[6] = (uint8_t)(csum >> 8);
     udp[7] = (uint8_t)(csum & 0xFFu);
@@ -188,3 +214,4 @@ int build_ipv6_udp_coap_packet(const ipv6_udp_cfg_t *cfg,
     *out_len = total_len;
     return 0;
 }
+
